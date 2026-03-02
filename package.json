@@ -1,0 +1,7 @@
+{
+  "name": "agendar-visita-google",
+  "version": "1.0.0",
+  "dependencies": {
+    "googleapis": "^137.0.0"
+  }
+}
