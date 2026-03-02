@@ -1,24 +1,40 @@
 module.exports = async (req, res) => {
-  // DEBUG: Estado inicial
+  // DEBUG logs
   console.log('📥 Request recibido');
   console.log('🔑 GOOGLE_SERVICE_ACCOUNT_KEY existe:', !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
   console.log('📅 CALENDAR_ID:', process.env.CALENDAR_ID);
   
   if (req.method !== 'POST') {
+    console.log('❌ Método no permitido:', req.method);
     return res.status(405).json({ error: 'Solo POST permitido' });
   }
 
-  const { start, end, user_name, user_email } = req.body;
-  console.log('📋 Body:', { start, end, user_name, user_email });
+  const { start, end, user_name, user_email, notes = '' } = req.body;
+  console.log('📋 Body recibido:', { start, end, user_name, user_email });
 
-  if (!start || !end || !user_name || !user_email) {
-    return res.status(400).json({ status: 'error', message: 'Faltan campos requeridos' });
+  // VALIDACIÓN: Campos obligatorios
+  if (!start || !user_name || !user_email) {
+    console.log('❌ Faltan campos obligatorios');
+    return res.status(400).json({ 
+      status: 'error', 
+      message: 'Faltan: start, user_name, user_email' 
+    });
   }
 
-  // CHECK CRÍTICO
+  // 🆕 VALIDACIÓN END AUTOMÁTICA: Si no viene end, start + 1h
+  let finalEnd = end;
+  if (!end) {
+    const startDate = new Date(start);
+    finalEnd = new Date(startDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 19); // +1h
+    console.log('🔄 End auto-calculado:', finalEnd);
+  }
+
+  console.log('📊 Final usando:', { start, end: finalEnd, user_name, user_email });
+
+  // CHECK CRÍTICO: Variables de entorno
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
     console.error('❌ FALTA GOOGLE_SERVICE_ACCOUNT_KEY');
-    return res.status(500).json({ status: 'error', message: 'Falta GOOGLE_SERVICE_ACCOUNT_KEY en variables' });
+    return res.status(500).json({ status: 'error', message: 'Falta configuración Google Calendar' });
   }
 
   try {
@@ -32,38 +48,8 @@ module.exports = async (req, res) => {
     const authClient = await auth.getClient();
     const calendar = google.calendar({ version: 'v3', auth: authClient });
     
-    console.log('✅ Google Calendar auth OK');
+    console.log('✅ Google Calendar autenticado');
 
-    // Check eventos
-    const events = await calendar.events.list({
-      calendarId: process.env.CALENDAR_ID || 'primary',
-      timeMin: new Date(start).toISOString(),
-      timeMax: new Date(end).toISOString()
-    });
-
-    console.log('📊 Eventos encontrados:', events.data.items?.length || 0);
-
-    if (events.data.items?.length > 0) {
-      return res.json({ status: 'busy', message: 'Franja ocupada' });
-    }
-
-    // Crear evento
-    const event = {
-      summary: `🧭 Visita: ${user_name}`,
-      start: { dateTime: new Date(start), timeZone: 'Europe/Madrid' },
-      end: { dateTime: new Date(end), timeZone: 'Europe/Madrid' }
-    };
-
-    const result = await calendar.events.insert({
-      calendarId: process.env.CALENDAR_ID || 'primary',
-      resource: event
-    });
-
-    console.log('✅ Evento creado:', result.data.id);
-    res.json({ status: 'booked', event_id: result.data.id });
-
-  } catch (error) {
-    console.error('💥 ERROR COMPLETO:', error.message);
-    res.status(500).json({ status: 'error', message: error.message });
-  }
-};
+    // 1. CHECK DISPONIBILIDAD
+    const calendarId = process.env.CALENDAR_ID || 'primary';
+    const events = await calendar.events.li
