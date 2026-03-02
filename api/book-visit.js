@@ -1,13 +1,4 @@
-const { google } = require('googleapis');
-
-const auth = new google.auth.GoogleAuth({
-  keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY, // JSON completo
-  scopes: ['https://www.googleapis.com/auth/calendar']
-});
-
-const CALENDAR_ID = process.env.CALENDAR_ID || 'primary';
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Solo POST permitido' });
   }
@@ -21,11 +12,28 @@ module.exports = async (req, res) => {
     });
   }
 
+  // DEBUG: Verificar variables
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    return res.status(500).json({ 
+      status: 'error', 
+      message: 'Falta GOOGLE_SERVICE_ACCOUNT_KEY' 
+    });
+  }
+
   try {
+    const { google } = await import('googleapis');
+    
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY),
+      scopes: ['https://www.googleapis.com/auth/calendar']
+    });
+
+    const CALENDAR_ID = process.env.CALENDAR_ID || 'primary';
+    
     const authClient = await auth.getClient();
     const calendar = google.calendar({ version: 'v3', auth: authClient });
 
-    // 1. Check disponibilidad
+    // Check disponibilidad
     const checkEvents = await calendar.events.list({
       calendarId: CALENDAR_ID,
       timeMin: new Date(start).toISOString(),
@@ -37,31 +45,18 @@ module.exports = async (req, res) => {
     if (checkEvents.data.items?.length > 0) {
       return res.json({ 
         status: 'busy', 
-        message: 'Franja ocupada. ¿Otra hora?',
+        message: 'Franja ocupada',
         events: checkEvents.data.items.map(e => e.summary)
       });
     }
 
-    // 2. Crear evento
+    // Crear evento
     const event = {
       summary: `🧭 Visita: ${user_name}`,
-      description: `Cliente: ${user_name}\nEmail: ${user_email}\nNotas: ${notes}\n\nAgendado desde agente ElevenLabs`,
-      start: {
-        dateTime: new Date(start),
-        timeZone: 'Europe/Madrid',
-      },
-      end: {
-        dateTime: new Date(end),
-        timeZone: 'Europe/Madrid',
-      },
-      location: 'Oficina Madrid',
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: 'email', minutes: 24 * 60 },
-          { method: 'popup', minutes: 10 },
-        ],
-      },
+      description: `Cliente: ${user_name}\nEmail: ${user_email}\nNotas: ${notes}`,
+      start: { dateTime: new Date(start), timeZone: 'Europe/Madrid' },
+      end: { dateTime: new Date(end), timeZone: 'Europe/Madrid' },
+      location: 'Oficina Madrid'
     };
 
     const createEvent = await calendar.events.insert({
@@ -72,16 +67,15 @@ module.exports = async (req, res) => {
     res.json({ 
       status: 'booked', 
       event_id: createEvent.data.id,
-      htmlLink: createEvent.data.htmlLink,
-      start: createEvent.data.start.dateTime,
-      end: createEvent.data.end.dateTime
+      htmlLink: createEvent.data.htmlLink
     });
 
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('ERROR COMPLETO:', error);
     res.status(500).json({ 
       status: 'error', 
-      message: error.message 
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : 'Internal error'
     });
   }
-};
+}
